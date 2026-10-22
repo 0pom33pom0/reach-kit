@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import re
 import urllib.parse
-import xml.etree.ElementTree as ET
 from typing import List
 
 from .. import net
 from ..errors import ReachError
 from ..model import Item, Options, Result
-from ..text import clean
+from ..text import clean, parse_xml
 
 NAME = "arxiv"
 API = "https://export.arxiv.org/api/query"
@@ -28,10 +27,7 @@ def _one_line(s: str) -> str:
 
 
 def parse_feed(xml_text: str) -> List[Item]:
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError as e:
-        raise ReachError("parse_error", f"bad arXiv response: {e}")
+    root = parse_xml(xml_text)
     items = []
     for e in root.findall("a:entry", NS):
         authors = [_one_line(a.findtext("a:name", "", NS)) for a in e.findall("a:author", NS)]

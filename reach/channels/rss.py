@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import urllib.parse
-import xml.etree.ElementTree as ET
 from typing import List
 
 from .. import net
 from ..errors import ReachError
 from ..model import Item, Options, Result
-from ..text import clean, html_to_text
+from ..text import clean, html_to_text, parse_xml
 
 NAME = "rss"
 ATOM = "{http://www.w3.org/2005/Atom}"
@@ -27,12 +26,7 @@ def _local(tag: str) -> str:
 
 
 def parse(xml_text: str, url: str, limit: int) -> Result:
-    if "<!ENTITY" in xml_text[:5000]:
-        raise ReachError("parse_error", "feed declares XML entities; refusing to parse it")
-    try:
-        root = ET.fromstring(xml_text.lstrip("﻿").strip())
-    except ET.ParseError as e:
-        raise ReachError("parse_error", f"not a valid RSS/Atom feed: {e}")
+    root = parse_xml(xml_text)
     items: List[Item] = []
     title = ""
     if _local(root.tag) == "feed":  # Atom

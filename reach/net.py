@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import socket
@@ -49,14 +50,66 @@ def check_url(url: str) -> str:
     except (socket.gaierror, UnicodeError) as e:
         raise ReachError("network", f"cannot resolve {host}: {e}")
     for info in infos:
-        addr = info[4][0].split("%", 1)[0]
-        ip = ipaddress.ip_address(addr)
-        mapped = getattr(ip, "ipv4_mapped", None)
-        if mapped is not None:
-            ip = mapped
-        if not ip.is_global or ip.is_multicast:
-            raise ReachError("unsafe_url", f"refusing non-public address {ip} for {host}")
+        _require_public(info[4][0], host)
     return url
+
+
+def _require_public(addr: str, host: str) -> None:
+    ip = ipaddress.ip_address(addr.split("%", 1)[0])
+    mapped = getattr(ip, "ipv4_mapped", None)
+    if mapped is not None:
+        ip = mapped
+    if not ip.is_global or ip.is_multicast:
+        raise ReachError("unsafe_url", f"refusing non-public address {ip} for {host}")
+
+
+def _proxy_hosts() -> set:
+    hosts = set()
+    for proxy in urllib.request.getproxies().values():
+        h = urllib.parse.urlsplit(proxy if "://" in proxy else "//" + proxy).hostname
+        if h:
+            hosts.add(h.lower())
+    return hosts
+
+
+def _guarded_create_connection(address, *args, **kwargs):
+    """socket.create_connection that re-checks the address we really connected to.
+
+    check_url() resolves the name once; DNS can answer differently a moment
+    later (DNS rebinding). Checking the connected peer closes that gap. A
+    proxy you configured yourself (HTTP(S)_PROXY) is allowed to be local.
+    """
+    sock = socket.create_connection(address, *args, **kwargs)
+    host = str(address[0]).lower()
+    if host not in _proxy_hosts():
+        try:
+            _require_public(sock.getpeername()[0], host)
+        except ReachError:
+            sock.close()
+            raise
+    return sock
+
+
+class _GuardedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = _guarded_create_connection
+
+
+class _GuardedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = _guarded_create_connection
+
+
+class _GuardedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_GuardedHTTPConnection, req)
+
+
+class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_GuardedHTTPSConnection, req, context=self._context)
 
 
 class _SafeRedirect(urllib.request.HTTPRedirectHandler):
@@ -65,7 +118,7 @@ class _SafeRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-_opener = urllib.request.build_opener(_SafeRedirect)
+_opener = urllib.request.build_opener(_SafeRedirect, _GuardedHTTPHandler, _GuardedHTTPSHandler)
 
 
 class Response:

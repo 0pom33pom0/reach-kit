@@ -18,7 +18,7 @@ SOURCES = sorted(PKG.rglob("*.py"))
 # Every import must be from this list. Adding one is a reviewed, deliberate change.
 STDLIB_ALLOWED = {
     "__future__", "argparse", "ast", "base64", "concurrent", "dataclasses", "datetime", "filecmp",
-    "hashlib", "html", "ipaddress", "json", "math", "os", "pathlib", "re", "shutil", "socket",
+    "hashlib", "html", "http", "ipaddress", "json", "math", "os", "pathlib", "re", "shutil", "socket",
     "subprocess", "sys", "time", "typing", "urllib", "xml", "zlib",
 }
 
@@ -68,6 +68,50 @@ class SSRFGuard(unittest.TestCase):
             with self.assertRaises(ReachError):
                 net.http_get("http://intranet.example/")
             op.assert_not_called()
+
+
+class ConnectTimeCheck(unittest.TestCase):
+    """DNS rebinding: the address actually connected to is checked again."""
+
+    def fake_sock(self, peer):
+        sock = mock.Mock()
+        sock.getpeername.return_value = (peer, 443)
+        return sock
+
+    def test_private_peer_refused(self):
+        sock = self.fake_sock("127.0.0.1")
+        with mock.patch("socket.create_connection", return_value=sock), \
+                mock.patch("urllib.request.getproxies", return_value={}):
+            with self.assertRaises(ReachError):
+                net._guarded_create_connection(("rebind.example", 443))
+        sock.close.assert_called_once()
+
+    def test_public_peer_ok(self):
+        sock = self.fake_sock("93.184.216.34")
+        with mock.patch("socket.create_connection", return_value=sock), \
+                mock.patch("urllib.request.getproxies", return_value={}):
+            self.assertIs(net._guarded_create_connection(("example.com", 443)), sock)
+
+    def test_user_configured_local_proxy_allowed(self):
+        sock = self.fake_sock("127.0.0.1")
+        with mock.patch("socket.create_connection", return_value=sock), \
+                mock.patch("urllib.request.getproxies", return_value={"https": "http://127.0.0.1:3128"}):
+            self.assertIs(net._guarded_create_connection(("127.0.0.1", 3128)), sock)
+
+    def test_opener_uses_guarded_connections(self):
+        kinds = {type(h) for h in net._opener.handlers}
+        self.assertIn(net._GuardedHTTPHandler, kinds)
+        self.assertIn(net._GuardedHTTPSHandler, kinds)
+        conn = net._GuardedHTTPSConnection("example.com")
+        self.assertIs(conn._create_connection, net._guarded_create_connection)
+
+
+class XMLRules(unittest.TestCase):
+    def test_entities_refused_anywhere(self):
+        from reach.text import parse_xml
+        late = "<rss>" + " " * 20000 + '<!DOCTYPE x [<!ENTITY a "a">]></rss>'
+        with self.assertRaises(ReachError):
+            parse_xml(late)
 
 
 class ProcessRules(unittest.TestCase):

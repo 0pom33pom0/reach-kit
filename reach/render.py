@@ -16,6 +16,11 @@ END = "<<<END UNTRUSTED CONTENT>>>"
 COMMENT_MAX = 2000
 
 
+def neutralize(text) -> str:
+    """Fetched text can never forge our markers: '<<<' / '>>>' become look-alikes."""
+    return str(text).replace("<<<", "‹‹‹").replace(">>>", "›››")
+
+
 def _cut(text: str, n: int) -> str:
     if len(text) <= n:
         return text
@@ -82,51 +87,56 @@ def to_json(result: Result) -> str:
 
 def _stats_line(stats: dict) -> str:
     parts = [f"{k}: {v}" for k, v in stats.items() if v is not None]
-    return " · ".join(parts)
+    return neutralize(" · ".join(parts))
 
 
 def _comment_md(c: Comment, depth: int, lines: List[str]) -> None:
     pad = "  " * depth
-    meta = [f"**{c.author or 'anonymous'}**"]
+    meta = [f"**{neutralize(c.author) or 'anonymous'}**"]
     if c.likes is not None:
         meta.append(f"♥ {c.likes}")
     if c.published:
-        meta.append(c.published)
+        meta.append(neutralize(c.published))
     lines.append(f"{pad}- {' · '.join(meta)}")
-    for t in (c.text or "").splitlines() or [""]:
+    for t in neutralize(c.text or "").splitlines() or [""]:
         lines.append(f"{pad}  {t}")
     for r in c.replies:
         _comment_md(r, depth + 1, lines)
 
 
 def to_markdown(result: Result) -> str:
-    lines: List[str] = []
-    title = result.title or result.url
-    lines.append(f"# {title}")
-    meta = [f"platform: {result.platform}", f"url: {result.url}"]
+    """Our own notes (warnings, truncation, source) stay outside the marked block;
+    every field that came from the internet — title included — goes inside it."""
+    n = neutralize
+    lines: List[str] = [f"reach-kit result · platform: {n(result.platform)}"]
+    for w in result.warnings:
+        lines.append(f"> ⚠️ {n(w)}")
+    lines.append(BEGIN.format(src=n(result.platform)))
+    lines.append(f"# {n(result.title or result.url)}")
+    meta = [f"url: {n(result.url)}"] if result.url else []
     if result.author:
-        meta.append(f"author: {result.author}")
+        meta.append(f"author: {n(result.author)}")
     if result.published:
-        meta.append(f"published: {result.published}")
-    lines.append(" | ".join(meta))
+        meta.append(f"published: {n(result.published)}")
+    if meta:
+        lines.append(" | ".join(meta))
     stats = _stats_line(result.stats)
     if stats:
         lines.append(stats)
-    for w in result.warnings:
-        lines.append(f"> ⚠️ {w}")
     lines.append("")
-    lines.append(BEGIN.format(src=result.platform))
     if result.text:
-        lines.append(result.text)
+        lines.append(n(result.text))
     if result.items is not None:
         for i, it in enumerate(result.items, 1):
-            head = f"{i}. [{it.title or it.url}]({it.url})"
-            extra = [x for x in (it.author, it.published, _stats_line(it.stats)) if x]
+            head = f"{i}. [{n(it.title or it.url)}]({n(it.url)})"
+            extra = [n(x) for x in (it.author, it.published) if x]
+            if it.stats:
+                extra.append(_stats_line(it.stats))
             if extra:
-                head += " — " + " · ".join(extra)
+                head += " — " + " · ".join(e for e in extra if e)
             lines.append(head)
             if it.snippet:
-                lines.append("   " + " ".join(it.snippet.split()))
+                lines.append("   " + n(" ".join(it.snippet.split())))
     if result.comments is not None:
         lines.append("")
         lines.append(f"## Comments ({count_comments(result.comments)} shown)")
@@ -136,7 +146,7 @@ def to_markdown(result: Result) -> str:
     if result.truncated:
         lines.append("_(output truncated — raise --max-chars for more)_")
     if result.source:
-        lines.append(f"_source: {result.source}_")
+        lines.append(f"_source: {n(result.source)}_")
     return "\n".join(lines)
 
 

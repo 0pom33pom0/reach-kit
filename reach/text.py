@@ -6,7 +6,10 @@ import html
 import re
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
+import xml.etree.ElementTree as ET
 from typing import List, Optional
+
+from .errors import ReachError
 
 _SKIP = {"script", "style", "noscript", "svg", "template", "head", "nav", "footer", "form", "iframe"}
 _BLOCK = {
@@ -109,3 +112,13 @@ def to_int(v) -> Optional[int]:
         return int(v)
     except (TypeError, ValueError):
         return None
+
+
+def parse_xml(text: str):
+    """Parse untrusted XML. Any entity declaration anywhere is refused (billion-laughs)."""
+    if "<!ENTITY" in text:
+        raise ReachError("parse_error", "XML declares entities; refusing to parse it")
+    try:
+        return ET.fromstring(text.lstrip("\ufeff").strip())
+    except ET.ParseError as e:
+        raise ReachError("parse_error", f"invalid XML: {e}")
