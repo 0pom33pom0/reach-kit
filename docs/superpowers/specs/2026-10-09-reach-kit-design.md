@@ -1,6 +1,6 @@
 # reach-kit — Design Spec
 
-วันที่: 2026-10-09 · สถานะ: รออนุมัติ
+วันที่: 2026-10-09 · สถานะ: อนุมัติแล้ว, implement ใน v1.0.0 (2026-10-22)
 
 ## 1. เป้าหมาย
 
@@ -190,3 +190,12 @@ claude mcp add reach -- reach mcp     # ถ้าต้องการ MCP
 - DuckDuckGo HTML อาจ rate-limit — มี cache + ทางเลือก JINA_API_KEY
 - Pantip endpoint ไม่ใช่ API ทางการ — อาจเปลี่ยนได้; มี fixture test + live test
 - yt-dlp เป็น dependency ภายนอกเพียงตัวเดียวที่สำคัญ — ผู้ใช้ติดตั้งเอง, doctor แสดงเวอร์ชัน
+
+## 14. สิ่งที่เปลี่ยนจาก spec ระหว่าง implement (ทดสอบจริง 2026-10-22)
+
+- **ค้นหาเว็บ**: `s.jina.ai` ต้องใช้ key และ DuckDuckGo/Mojeek ขึ้น bot check หลังไม่กี่ครั้ง → ลำดับเป็น Brave API (`BRAVE_API_KEY`) → Jina (`JINA_API_KEY`) → DuckDuckGo; SKILL แนะนำให้ใช้ web search ในตัวของ agent ก่อน
+- **X**: ใช้ public embed endpoint (`cdn.syndication.twimg.com`) อ่านโพสต์เดี่ยวได้โดยไม่ล็อกอิน (yt-dlp ใช้ได้เฉพาะโพสต์ที่มีวิดีโอ)
+- **TikTok**: เพิ่ม oEmbed เป็น fallback; คอมเมนต์ถูกบล็อกจากเครือข่ายที่ทดสอบ → แสดง warning
+- **ไม่รองรับ `--retry`**: ตัดออกตาม YAGNI; doctor + error hint เพียงพอ
+- **MCP ไม่เปิดตัวเลือกคุกกี้** เพื่อไม่ให้ model/หน้าเว็บสั่งใช้การล็อกอินของผู้ใช้เอง
+- **cache TTL** แยกตามประเภท: read 1 ชม., transcript 24 ชม., search/feed/hn 15 นาที
